@@ -279,7 +279,7 @@ header {
     border-color: var(--primary);
 }
 
-/* PRODUCTS GRID (PERFECT 2-COLUMN ON MOBILE & MULTI-COLUMN ON DESKTOP) */
+/* PRODUCTS GRID */
 .products {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -477,6 +477,33 @@ footer p {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.cart-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.quantity {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 6px;
+}
+
+.quantity button {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: #f3ebf9;
+    color: var(--secondary);
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
 }
 
 .product-detail-layout {
@@ -855,7 +882,7 @@ footer p {
   }
 
   function closeProductModal() { document.getElementById("productModal").style.display = "none"; }
-  function openCart() { document.getElementById("cartModal").style.display = "block"; }
+  function openCart() { document.getElementById("cartModal").style.display = "block"; updateCart(); }
   function closeCart() { document.getElementById("cartModal").style.display = "none"; }
   
   function openOrdersModal() { 
@@ -868,7 +895,55 @@ footer p {
       if (ordersUnsubscribe) { ordersUnsubscribe(); ordersUnsubscribe = null; }
   }
 
-  // FIXED ORDER HISTORY LOADER (WITH ERROR HANDLING)
+  // ADD TO CART FUNCTION (FIXED)
+  function addToCart(id) {
+      const product = productsData.find(p => p.id === id);
+      if (!product) return;
+      const existing = cart.find(item => item.id === id);
+      if (existing) {
+          existing.quantity++;
+      } else {
+          cart.push({...product, quantity: 1});
+      }
+      updateCart(); // Updated here to refresh cart view and badge count immediately
+      showToast(`${product.name} added to cart!`, "🛒");
+  }
+
+  function changeQuantity(id, amount) {
+      const item = cart.find(p => p.id === id);
+      if (!item) return;
+      item.quantity += amount;
+      if (item.quantity <= 0) cart = cart.filter(p => p.id !== id);
+      updateCart();
+  }
+
+  function updateCart() {
+      const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+      const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      document.getElementById("cartCount").textContent = count;
+      document.getElementById("cartTotal").textContent = money(total);
+
+      const container = document.getElementById("cartItems");
+      if (!cart.length) {
+          container.innerHTML = '<div class="empty">Your cart is empty 🛒</div>';
+      } else {
+          container.innerHTML = cart.map(item => `
+              <div class="cart-item">
+                  <div>
+                      <strong>${escapeHTML(item.name)}</strong>
+                      <div>${money(item.price)} each</div>
+                      <div class="quantity">
+                          <button type="button" onclick="changeQuantity('${escapeHTML(item.id)}', -1)">−</button>
+                          <span>${item.quantity}</span>
+                          <button type="button" onclick="changeQuantity('${escapeHTML(item.id)}', 1)">+</button>
+                      </div>
+                  </div>
+                  <strong>${money(item.price * item.quantity)}</strong>
+              </div>
+          `).join("");
+      }
+  }
+
   function loadCustomerOrderHistory() {
       const historyList = document.getElementById("orderHistoryList");
       const savedOrders = JSON.parse(localStorage.getItem("pskart_my_order_ids") || "[]");
@@ -910,19 +985,38 @@ footer p {
       });
   }
 
-  function addToCart(id) {
-      const product = productsData.find(p => p.id === id);
-      if (!product) return;
-      const existing = cart.find(item => item.id === id);
-      if (existing) {
-          existing.quantity++;
-      } else {
-          cart.push({...product, quantity: 1});
-      }
-      showToast(`${product.name} added to cart!`, "🛒");
-  }
-
   document.getElementById("searchInput").addEventListener("input", renderProducts);
+
+  document.getElementById("orderForm").addEventListener("submit", function(event) {
+      event.preventDefault();
+      if (!cart.length) { showToast("Cart is empty!", "⚠️"); return; }
+      const name = document.getElementById("customerName").value.trim();
+      const phone = document.getElementById("customerPhone").value.trim();
+      const address = document.getElementById("customerAddress").value.trim();
+
+      const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const orderId = "ORD" + Date.now().toString().slice(-6);
+
+      const orderData = {
+          id: orderId, customer: name, phone: phone, address: address,
+          paymentMethod: "Cash on Delivery", items: cart, total: total, status: "Pending",
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      db.collection("orders").add(orderData).then(() => {
+          const localHistory = JSON.parse(localStorage.getItem("pskart_my_order_ids") || "[]");
+          localHistory.unshift(orderId);
+          localStorage.setItem("pskart_my_order_ids", JSON.stringify(localHistory));
+
+          showToast("🎉 Order placed successfully!", "✅");
+          cart = [];
+          updateCart();
+          closeCart();
+          document.getElementById("orderForm").reset();
+          openOrdersModal();
+      });
+  });
+
   document.getElementById("year").textContent = new Date().getFullYear();
 </script>
 
